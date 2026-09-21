@@ -53,39 +53,64 @@ jQuery(document).ready(function($){
         resizing = false;
     }
 
+    //read the horizontal position from mouse, touch and pointer events alike
+    function getPageX(e) {
+        var original = e.originalEvent || e;
+        if( original.touches && original.touches.length ) return original.touches[0].pageX;
+        if( original.changedTouches && original.changedTouches.length ) return original.changedTouches[0].pageX;
+        return original.pageX;
+    }
+
     //draggable funtionality - credits to http://css-tricks.com/snippets/jquery/draggable-without-jquery-ui/
     function drags(dragElement, resizeElement, container, labelContainer, labelResizeElement) {
-        dragElement.on("mousedown vmousedown", function(e) {
+        dragElement.on("mousedown touchstart", function(e) {
             dragElement.addClass('draggable');
             resizeElement.addClass('resizable');
 
             var dragWidth = dragElement.outerWidth(),
-                xPosition = dragElement.offset().left + dragWidth - e.pageX,
+                xPosition = dragElement.offset().left + dragWidth - getPageX(e),
                 containerOffset = container.offset().left,
                 containerWidth = container.outerWidth(),
                 minLeft = containerOffset + 10,
                 maxLeft = containerOffset + containerWidth - dragWidth - 10;
-            
-            dragElement.parents().on("mousemove vmousemove", function(e) {
+
+            function onMove(e) {
                 if( !dragging) {
                     dragging =  true;
+                    //read the position now: the event is stale by the time the frame runs
+                    var pageX = getPageX(e);
                     ( !window.requestAnimationFrame )
-                        ? setTimeout(function(){animateDraggedHandle(e, xPosition, dragWidth, minLeft, maxLeft, containerOffset, containerWidth, resizeElement, labelContainer, labelResizeElement);}, 100)
-                        : requestAnimationFrame(function(){animateDraggedHandle(e, xPosition, dragWidth, minLeft, maxLeft, containerOffset, containerWidth, resizeElement, labelContainer, labelResizeElement);});
+                        ? setTimeout(function(){animateDraggedHandle(pageX, xPosition, dragWidth, minLeft, maxLeft, containerOffset, containerWidth, dragElement, resizeElement, labelContainer, labelResizeElement);}, 100)
+                        : requestAnimationFrame(function(){animateDraggedHandle(pageX, xPosition, dragWidth, minLeft, maxLeft, containerOffset, containerWidth, dragElement, resizeElement, labelContainer, labelResizeElement);});
                 }
-            }).on("mouseup vmouseup", function(e){
-                dragElement.removeClass('draggable');
-                resizeElement.removeClass('resizable');
-            });
+                //keep the page from scrolling/selecting while the handle is being dragged
+                e.preventDefault();
+            }
+
+            //mouse: follow the pointer on the document, so the drag survives leaving
+            //the container and always ends, even if the button is released outside it
+            $(document).on('mousemove.cd-drag', onMove).on('mouseup.cd-drag', stopDragging);
+            //touch: the browser retargets every touchmove/touchend to the element the
+            //gesture started on, so bind them there - on document they would be passive
+            //listeners and preventDefault() would be ignored, letting the page scroll
+            dragElement.on('touchmove.cd-drag', onMove).on('touchend.cd-drag touchcancel.cd-drag', stopDragging);
+
             e.preventDefault();
-        }).on("mouseup vmouseup", function(e) {
+        });
+
+        function stopDragging() {
+            //remove the listeners added on mousedown, otherwise they pile up on
+            //every drag and keep firing once the drag is over
+            $(document).off('.cd-drag');
+            dragElement.off('.cd-drag');
             dragElement.removeClass('draggable');
             resizeElement.removeClass('resizable');
-        });
+            dragging = false;
+        }
     }
 
-    function animateDraggedHandle(e, xPosition, dragWidth, minLeft, maxLeft, containerOffset, containerWidth, resizeElement, labelContainer, labelResizeElement) {
-        var leftValue = e.pageX + xPosition - dragWidth;   
+    function animateDraggedHandle(pageX, xPosition, dragWidth, minLeft, maxLeft, containerOffset, containerWidth, dragElement, resizeElement, labelContainer, labelResizeElement) {
+        var leftValue = pageX + xPosition - dragWidth;   
         //constrain the draggable element to move inside his container
         if(leftValue < minLeft ) {
             leftValue = minLeft;
@@ -95,12 +120,8 @@ jQuery(document).ready(function($){
 
         var widthValue = (leftValue + dragWidth/2 - containerOffset)*100/containerWidth+'%';
         
-        $('.draggable').css('left', widthValue).on("mouseup vmouseup", function() {
-            $(this).removeClass('draggable');
-            resizeElement.removeClass('resizable');
-        });
-
-        $('.resizable').css('width', widthValue); 
+        dragElement.css('left', widthValue);
+        resizeElement.css('width', widthValue); 
 
         updateLabel(labelResizeElement, resizeElement, 'left');
         updateLabel(labelContainer, resizeElement, 'right');
